@@ -1,6 +1,8 @@
 #!/usr/bin/python
 import httplib2
 import sys
+import xmltodict
+import json
 
 try:
     # python2.6+
@@ -10,6 +12,7 @@ except:
     # Python 2.4+ should have iterparse
     import cElementTree as ET
 
+#parse xml response
 def parse_xml(response):
     result = {}
     element = ET.fromstring(response)
@@ -40,18 +43,32 @@ def parse_xml(response):
         
     return result
 
+#parse json response    
+def parse_json(response):
+    result = {}
+    element = json.loads(response)["transaction"]
+    result['result'] = element.get("result", None)
+    result['result_code'] = element.get("result_code", None)
+    result['display_message'] = element.get("display_message", None)
+    result['id'] = element.get("id", None)
+    result['authorization_code'] = element.get("authorization_code", None)
+    result['error_code'] = element.get("error_code", None)
+           
+    return result
+
 if __name__ == '__main__':
     
     #Settings
     APIURL = ''
     APIKEY = ''
     TIMEOUT = 15
-    CONN = httplib2.Http(timeout=TIMEOUT)
+    CONN = httplib2.Http(timeout=TIMEOUT, disable_ssl_certificate_validation=True)
+    LANG_TYPE = '' #'xml' or 'json'
     
     try:
         
         #Xml transaction request
-        TRANSACTION_REQUEST = """<?xml version="1.0" encoding="utf-8"?>
+        XML_TRANSACTION_REQUEST = """<?xml version="1.0" encoding="utf-8"?>
 <transaction>
     <api_key>%(APIKEY)s</api_key>
     <type>%(type)s</type>
@@ -129,34 +146,51 @@ if __name__ == '__main__':
                     'shipping_zip' : '79512',
                     'shipping_country' : 'USA',
                     'shipping_phone' : '123456789'}
-        
+		
+        if LANG_TYPE == 'json': #if JSON is chosen, convert the XML request generated to a JSON request
+            temp = xmltodict.parse(XML_TRANSACTION_REQUEST) # convert previous builded XML request to a dictionary
+            JSON_REQ = temp["transaction"]                  # take the value of "transaction" key into JSON_REQ
+            #Server doesn't process next fields for JSON requests, so they are excluded from the request
+            JSON_REQ.pop("avs_address")                     
+            JSON_REQ.pop("avs_zip")
+            
+            TRANSACTION_REQUEST = json.dumps(JSON_REQ, sort_keys=True, indent=4, separators=(',', ': ')) #turn the JSON_REQ dictionary into a JSON well-formed string
+        else: #if XML is chosen, use the generated xml transaction request
+            TRANSACTION_REQUEST = XML_TRANSACTION_REQUEST
+       
         print "-----------------------------------------------------"
         print "REQUEST TO URL: " + APIURL;
         print "POST DATA: \n" + TRANSACTION_REQUEST
         
         #Execute Request
-        HEADERS = {"Content-type": "application/xml", "Accept": "application/xml"}
+        HEADERS = {"Content-type": "application/"+LANG_TYPE, "Accept": "application/"+LANG_TYPE}
         response, content = CONN.request(APIURL, method='POST', body=TRANSACTION_REQUEST, headers=HEADERS)
         
         print "-----------------------------------------------------"
         print "RESPONSE DATA: \n" + content
 
-        #Handle Response
-        if response['status'] == '200':
-            if '<transaction>' in content:
-                result = parse_xml(content)
-
-                if result['result_code'] and result['result_code'] == '0000':
-                    print "-----------------------------------------------------"
-                    print "TRANSACTION APPROVED: " + result['authorization_code'] 
-                else:
-                    code = ""
-                    if result['error_code']:
-                        code = result['error_code']
-                    if result['result_code']:
-                        code = result['result_code']
-                    print "-----------------------------------------------------"
-                    print "TRANSACTION ERROR: Code=" + code + " Message=" + result['display_message'];
-    
+        #Handle Response       
+        if response['status'] == '200': #http status 200
+            if LANG_TYPE == 'xml': # if the chosen language was XML, then the server will respond back with XML
+                if '<transaction>' in content: 
+                    result = parse_xml(content) #parse xml response
+            else:# if the chosen language was JSON, then the server will respond back with JSON
+                 if "transaction" in content:
+                    result = parse_json(content) #parse json response
+            #parse response according to its content
+            if result['result_code'] and result['result_code'] == '0000':
+                print "-----------------------------------------------------"
+                print "TRANSACTION APPROVED: " + result['authorization_code'] 
+            else:
+                code = ""
+                if result['error_code']:
+                    code = result['error_code']
+                if result['result_code']:
+                    code = result['result_code']
+                print "-----------------------------------------------------"
+                print "TRANSACTION ERROR: Code=" + code + " Message=" + result['display_message'];
+            
+            
+            
     except Exception: 
         print "Unexpected error:", str(sys.exc_info())
