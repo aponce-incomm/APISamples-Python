@@ -46,7 +46,7 @@ def parse_xml(response):
 #parse json response    
 def parse_json(response):
     result = {}
-    element = json.loads(response)["transaction"]
+    element = json.loads(response)
     result['result'] = element.get("result", None)
     result['result_code'] = element.get("result_code", None)
     result['display_message'] = element.get("display_message", None)
@@ -175,7 +175,7 @@ if __name__ == '__main__':
                 if '<transaction>' in content: 
                     result = parse_xml(content) #parse xml response
             else:# if the chosen language was JSON, then the server will respond back with JSON
-                 if "transaction" in content:
+                if "id" in content:                  				
                     result = parse_json(content) #parse json response
             #parse response according to its content
             if result['result_code'] and result['result_code'] == '0000':
